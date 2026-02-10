@@ -2,6 +2,10 @@
 import express from 'express';
 import cors from 'cors';
 import pokemon from './schema/pokemon.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
 
 import './connect.js'
 
@@ -10,6 +14,22 @@ app.use(cors());
 app.use(express.static('public'));
 app.use(express.static('files'));
 app.use(express.json());
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir); 
+  },
+  filename: (req, file, cb) => {
+    const filename = Date.now() + path.extname(file.originalname); 
+    cb(null, filename);
+  },
+});
+
+const upload = multer({ storage });
 
 app.get('/', (req, res) => {
   res.send('Hello, World!');
@@ -26,7 +46,7 @@ app.get('/pokemons', async (req, res) => {
 
 app.get('/pokemonsByPage/:page', async (req, res) => {
   try{
-    const page = parseInt(req.params.id, 1);
+    const page = parseInt(req.params.page);
     const pokemons = await pokemon.find({  })
                                   .limit(20)
                                   .skip(20*page);
@@ -62,20 +82,40 @@ app.get('/pokemonByName/:name', async (req, res) => {
   }
 })
 
-app.post('/pokemonCreate', async (req, res) => {
-  try{
+app.post('/pokemonCreate', upload.single('image'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No image uploaded' });
+  }
+
+  try {
     const pokemons = await pokemon.find({});
-    const { name, type, base, image } = req.body;
+    const name = JSON.parse(req.body.name);  
+    const type = JSON.parse(req.body.type);  
+    const base = JSON.parse(req.body.base);  
+
+    const imageUrl = `http://localhost:3000/assets/pokemons/${req.file.filename}`;
+    
+    const finalDir = './public/assets/pokemons/';
+    if (!fs.existsSync(finalDir)) {
+      fs.mkdirSync(finalDir, { recursive: true });
+    }
+
+    const newPath = path.join(finalDir, req.file.filename);
+    fs.renameSync(req.file.path, newPath); 
+
     const newPokemon = { 
       id: pokemons.length + 1, 
       name,
       type,
       base,
-      image 
+      image: imageUrl,
     };
+
     const savedPokemon = await pokemon.create(newPokemon);
+
     res.status(201).json(savedPokemon.toObject({ versionKey: false }));
   } catch (error) {
+    console.error('Error creating Pokemon:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
